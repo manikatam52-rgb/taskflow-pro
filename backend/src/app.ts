@@ -1,8 +1,8 @@
-    import express from "express";
+import express from "express";
 import cors from "cors";
-import mongoose from "mongoose";
 import authRoutes from "./routes/authRoutes";
 import taskRoutes from "./routes/taskRoutes";
+import { isDbConnected } from "./config/database";
 import { errorMiddleware } from "./middleware/errorMiddleware";
 
 /** Express app factory. Kept separate from server.ts so tests can import it. */
@@ -13,10 +13,11 @@ export function createApp(): express.Express {
   app.use(express.json());
 
   app.get("/api/health", (_req, res) => {
-    res.json({
-      success: true,
-      status: "healthy",
-      db: mongoose.connection.readyState === 1 ? "connected" : "disconnected",
+    const dbConnected = isDbConnected();
+    res.status(dbConnected ? 200 : 503).json({
+      success: dbConnected,
+      status: dbConnected ? "healthy" : "unhealthy",
+      db: dbConnected ? "connected" : "disconnected",
       timestamp: new Date().toISOString(),
     });
   });

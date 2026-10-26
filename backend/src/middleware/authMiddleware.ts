@@ -26,18 +26,26 @@ export async function requireAuth(
 
   const token = header.slice("Bearer ".length).trim();
 
+  let payload: { sub?: string };
   try {
     const secret = process.env.JWT_SECRET;
     if (!secret) {
       throw new Error("JWT_SECRET is not configured");
     }
 
-    const payload = jwt.verify(token, secret) as { sub?: string };
-    if (!payload.sub) {
-      res.status(401).json({ success: false, message: "Invalid token" });
-      return;
-    }
+    payload = jwt.verify(token, secret) as { sub?: string };
+  } catch {
+    // Covers expired, tampered, and malformed tokens alike.
+    res.status(401).json({ success: false, message: "Invalid or expired token" });
+    return;
+  }
 
+  if (!payload.sub) {
+    res.status(401).json({ success: false, message: "Invalid token" });
+    return;
+  }
+
+  try {
     const user = await User.findById(payload.sub);
     if (!user) {
       // Token is valid but the account no longer exists — treat as unauthenticated.
@@ -47,8 +55,7 @@ export async function requireAuth(
 
     req.authUser = user;
     next();
-  } catch {
-    // Covers expired, tampered, and malformed tokens alike.
-    res.status(401).json({ success: false, message: "Invalid or expired token" });
+  } catch (err) {
+    next(err);
   }
 }

@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
 import dns from "dns";
+import * as os from "node:os";
 
 /**
  * MongoDB connection.
@@ -18,7 +19,7 @@ export async function connectDatabase(): Promise<void> {
   mongoose.set("strictQuery", true);
 
   try {
-    await mongoose.connect(uri);
+    await mongoose.connect(uri, { runtimeAdapters: { os } });
   } catch (err) {
     /*
      * Some corporate/ISP DNS servers refuse DNS SRV queries, which makes
@@ -39,7 +40,7 @@ export async function connectDatabase(): Promise<void> {
       "SRV lookup failed via system DNS; retrying with public resolvers (8.8.8.8, 1.1.1.1)"
     );
     dns.setServers(["8.8.8.8", "1.1.1.1"]);
-    await mongoose.connect(uri);
+    await mongoose.connect(uri, { runtimeAdapters: { os } });
   }
 
   console.log("MongoDB connected");
@@ -47,4 +48,8 @@ export async function connectDatabase(): Promise<void> {
 
 export function isDbConnected(): boolean {
   return mongoose.connection.readyState === 1;
+}
+
+export async function disconnectDatabase(): Promise<void> {
+  await mongoose.disconnect();
 }

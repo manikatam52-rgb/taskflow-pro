@@ -53,7 +53,57 @@ JWT_SECRET=<long random string>
 JWT_EXPIRES_IN=7d
 ```
 
+The backend opens one Mongoose connection before it accepts requests, keeps it
+for the server process lifetime, and closes it during graceful shutdown. Mobile
+builds connect only to the HTTPS API; keep `MONGODB_URI` in the backend's
+environment and never place database credentials in the app. Use MongoDB Atlas
+or another persistent MongoDB service for durable task data; the local
+in-memory database is temporary.
+
 For Atlas, allow your IP under **Network Access** (or `0.0.0.0/0` for dev).
+
+## Deploy API and database
+
+The repository includes a Render Blueprint at `render.yaml` for the API. Deploy the
+database separately with MongoDB Atlas:
+
+1. Create an Atlas cluster and a database user with a strong, unique password.
+2. In Atlas **Network Access**, allow connections from Render. Render's free web
+   services use changing outbound addresses; for a free deployment, Atlas may
+   require `0.0.0.0/0`. Protect the cluster with database authentication and use
+   a least-privilege database user. Use a paid static-egress option if you need
+   an IP-restricted allowlist.
+3. In Render, create a Blueprint from this repository and deploy `render.yaml`.
+   The Blueprint creates a web service named `taskflow-pro-express-api`; use the
+   public URL shown on that service in Render. Do not assume an existing
+   `taskflow-pro-api.onrender.com` service is this backend: that hostname was
+   previously observed serving an incompatible API.
+   Set the prompted `MONGODB_URI` to the Atlas connection URI (URL-encode special
+   characters in the database username/password) and `JWT_SECRET` to a long,
+   random value. Keep both values in Render's environment settings, never in Git.
+   For example, generate a JWT secret locally with
+   `node -e "console.log(require('node:crypto').randomBytes(48).toString('hex'))"`.
+4. Wait for the Render deploy to finish, then verify
+   `https://<your-render-service>.onrender.com/api/health` reports
+   `"status":"healthy"` and `"db":"connected"`.
+
+Update `PRODUCTION_API_URL` in `mobile/src/config.ts` to the actual HTTPS URL
+shown by Render (including `/api`) and rebuild the APK. Development builds
+continue to use the local API. Render's free service may sleep when idle, so its
+first request after inactivity can take longer.
+
+For local development without MongoDB installed, set `MONGODB_URI=mongodb://127.0.0.1:27017/taskflow`.
+Start the in-memory database in one terminal:
+
+```powershell
+npm run dev:db
+```
+
+Then start the API in another terminal with `npm run dev`. This development database is temporary;
+its data is cleared when the database process stops.
+
+Android debug builds allow HTTP for a local API; release builds disable cleartext
+traffic and use the HTTPS production API URL.
 
 Run (terminal 1):
 

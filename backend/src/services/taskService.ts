@@ -2,6 +2,7 @@ import { Types } from "mongoose";
 import { Task, type TaskDTO, type Priority, type TaskStatus } from "../models/Task";
 import { httpError } from "../middleware/errorMiddleware";
 import { validateTaskBody } from "../utils/validation";
+import { broadcastTaskEvent } from "../realtime/wsServer";
 
 export type TaskSortBy =
   | "smart"
@@ -75,7 +76,7 @@ function sortTasks(tasks: TaskDTO[], sortBy: TaskSortBy): TaskDTO[] {
     switch (sortBy) {
       case "smart": {
         const diff = urgencyScore(b) - urgencyScore(a);
-        return diff !== 0 ? diff : dl(a) - dl(b) || dl(b) - dl(a) * 0 || a.createdAt.getTime() - b.createdAt.getTime();
+        return diff || dl(a) - dl(b) || a.createdAt.getTime() - b.createdAt.getTime();
       }
       case "deadline":
         return dl(a) - dl(b) || a.createdAt.getTime() - b.createdAt.getTime();
@@ -132,7 +133,9 @@ export async function createTask(
 ): Promise<TaskDTO> {
   const fields = validateTaskBody(body, "create");
   const doc = await Task.create({ ...fields, userId: new Types.ObjectId(userId) });
-  return doc.toDTO();
+  const dto = doc.toDTO();
+  broadcastTaskEvent({ type: "task.created", task: dto, at: new Date().toISOString() }, userId);
+  return dto;
 }
 
 export async function updateTask(
@@ -148,10 +151,12 @@ export async function updateTask(
   const doc = await Task.findOneAndUpdate(
     { _id: id, userId: new Types.ObjectId(userId) },
     { $set: fields },
-    { new: true, runValidators: true }
+    { returnDocument: "after", runValidators: true }
   );
   if (!doc) throw httpError(404, "Task not found");
-  return doc.toDTO();
+  const dto = doc.toDTO();
+  broadcastTaskEvent({ type: "task.updated", task: dto, at: new Date().toISOString() }, userId);
+  return dto;
 }
 
 /** Toggles completion, or forces a target status when body.status given. */
@@ -172,7 +177,9 @@ export async function toggleComplete(
   existing.status = next;
   existing.completedAt = next === "completed" ? new Date() : null;
   await existing.save();
-  return existing.toDTO();
+  const dto = existing.toDTO();
+  broadcastTaskEvent({ type: "task.updated", task: dto, at: new Date().toISOString() }, userId);
+  return dto;
 }
 
 export async function deleteTask(userId: string, id: string): Promise<void> {
@@ -182,4 +189,5 @@ export async function deleteTask(userId: string, id: string): Promise<void> {
     userId: new Types.ObjectId(userId),
   });
   if (!doc) throw httpError(404, "Task not found");
+  broadcastTaskEvent({ type: "task.deleted", id, at: new Date().toISOString() }, userId);
 }

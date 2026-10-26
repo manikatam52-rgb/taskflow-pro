@@ -141,13 +141,17 @@ describe("task endpoints", () => {
       .send({ title: "injected", userId: "000000000000000000000000" });
     expect(res.status).toBe(201);
     expect(res.body.data.task.userId).not.toBe("000000000000000000000000");
+    const removed = await request(app())
+      .delete(`/api/tasks/${res.body.data.task._id}`)
+      .set("Authorization", `Bearer ${tokenA}`);
+    expect(removed.status).toBe(200);
   });
 
-  it("returns tasks sorted smart: overdue first, no-deadline before far deadline", async () => {
+  it("returns tasks sorted by smart urgency", async () => {
     const res = await request(app()).get("/api/tasks").set("Authorization", `Bearer ${tokenA}`);
     const titles = res.body.data.tasks.map((t: { title: string }) => t.title);
     expect(titles[0]).toBe("Overdue high");
-    expect(titles).toEqual(["Overdue high", "No deadline", "Future low"]);
+    expect(titles).toEqual(["Overdue high", "Future low", "No deadline"]);
   });
 
   it("filters by status, priority, and search", async () => {
@@ -237,7 +241,7 @@ describe("task endpoints", () => {
       .set("Authorization", `Bearer ${tokenA}`)
       .set("Content-Type", "application/json")
       .send("{not json");
-    expect([400, 500]).toContain(res.status);
+    expect(res.status).toBe(400);
     expect(res.body.success).toBe(false);
   });
 });
@@ -248,5 +252,17 @@ describe("GET /api/health", () => {
     expect(res.status).toBe(200);
     expect(res.body.status).toBe("healthy");
     expect(res.body.db).toBe("connected");
+  });
+
+  it("reports unavailable when the database is disconnected", async () => {
+    await disconnectDatabase();
+    try {
+      const res = await request(app()).get("/api/health");
+      expect(res.status).toBe(503);
+      expect(res.body.status).toBe("unhealthy");
+      expect(res.body.db).toBe("disconnected");
+    } finally {
+      await connectDatabase();
+    }
   });
 });

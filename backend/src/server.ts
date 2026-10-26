@@ -1,7 +1,7 @@
 import "dotenv/config";
-import mongoose from "mongoose";
 import { createApp } from "./app";
-import { connectDatabase } from "./config/database";
+import { connectDatabase, disconnectDatabase } from "./config/database";
+import { initRealtime } from "./realtime/wsServer";
 
 /**
  * Server entry point.
@@ -25,10 +25,38 @@ async function main(): Promise<void> {
   const PORT = Number(process.env.PORT || 5000);
   const app = createApp();
 
-  app.listen(PORT, '0.0.0.0', () => {
+  const server = app.listen(PORT, '0.0.0.0', () => {
     console.log(`TaskFlow Pro API running on port ${PORT}`);
     console.log(`Health check: http://localhost:${PORT}/api/health`);
   });
+
+  // Realtime task sync over WebSocket (same port, path /ws).
+  const closeRealtime = initRealtime(server);
+
+  let shuttingDown = false;
+  const shutdown = (signal: NodeJS.Signals): void => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`${signal} received; shutting down`);
+
+    closeRealtime();
+    server.close((err) => {
+      if (err) {
+        console.error("HTTP server shutdown failed:", err);
+        process.exitCode = 1;
+      }
+
+      void disconnectDatabase()
+        .then(() => console.log("MongoDB disconnected"))
+        .catch((disconnectError: unknown) => {
+          console.error("MongoDB shutdown failed:", disconnectError);
+          process.exitCode = 1;
+        });
+    });
+  };
+
+  process.once("SIGINT", () => shutdown("SIGINT"));
+  process.once("SIGTERM", () => shutdown("SIGTERM"));
 }
 
 main().catch((err) => {
