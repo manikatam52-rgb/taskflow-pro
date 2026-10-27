@@ -1,13 +1,13 @@
 import "dotenv/config";
 import { createApp } from "./app";
-import { connectDatabase, disconnectDatabase } from "./config/database";
+import { connectDatabase } from "./config/database";
 import { initRealtime } from "./realtime/wsServer";
 
 /**
  * Server entry point.
  * - Loads environment variables.
- * - Fails clearly when required configuration (JWT_SECRET, MONGODB_URI) is missing.
- * - Connects to MongoDB before accepting traffic, so the app never pretends
+ * - Fails clearly when required configuration (JWT_SECRET, DATABASE_URL) is missing.
+ * - Connects to PostgreSQL before accepting traffic, so the app never pretends
  *   persistence works when it does not.
  */
 async function main(): Promise<void> {
@@ -15,8 +15,8 @@ async function main(): Promise<void> {
     console.error("FATAL: JWT_SECRET is missing. Copy backend/.env.example to backend/.env and set it.");
     process.exit(1);
   }
-  if (!process.env.MONGODB_URI) {
-    console.error("FATAL: MONGODB_URI is missing. Copy backend/.env.example to backend/.env and set it.");
+  if (!process.env.DATABASE_URL) {
+    console.error("FATAL: DATABASE_URL is missing. Copy backend/.env.example to backend/.env and set it.");
     process.exit(1);
   }
 
@@ -31,32 +31,16 @@ async function main(): Promise<void> {
   });
 
   // Realtime task sync over WebSocket (same port, path /ws).
-  const closeRealtime = initRealtime(server);
+  initRealtime(server);
 
-  let shuttingDown = false;
-  const shutdown = (signal: NodeJS.Signals): void => {
-    if (shuttingDown) return;
-    shuttingDown = true;
-    console.log(`${signal} received; shutting down`);
-
-    closeRealtime();
-    server.close((err) => {
-      if (err) {
-        console.error("HTTP server shutdown failed:", err);
-        process.exitCode = 1;
-      }
-
-      void disconnectDatabase()
-        .then(() => console.log("MongoDB disconnected"))
-        .catch((disconnectError: unknown) => {
-          console.error("MongoDB shutdown failed:", disconnectError);
-          process.exitCode = 1;
-        });
-    });
+  const shutdown = async (): Promise<void> => {
+    server.close();
+    const { disconnectDatabase } = await import("./config/database");
+    await disconnectDatabase();
+    process.exit(0);
   };
-
-  process.once("SIGINT", () => shutdown("SIGINT"));
-  process.once("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
 }
 
 main().catch((err) => {
