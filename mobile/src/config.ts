@@ -13,7 +13,10 @@ import {Platform} from 'react-native';
  *    also override at build time. `adb reverse tcp:5000 tcp:5000` also works if
  *    you keep the localhost fallback.
  */
-const DEV_LAN_IP = '192.168.1.5'; // <-- change to your PC's LAN IP (ipconfig) for physical devices
+const DEV_LAN_IP = '10.12.216.198'; // Change to your active Wi-Fi IPv4 address for physical devices.
+const PRODUCTION_API_URL = 'https://taskflow-pro-api.onrender.com/api';
+
+// Optional explicit override for the WebSocket base (defaults derive from API base).
 
 const ANDROID_EMULATOR_URL = 'http://10.0.2.2:5000/api';
 const IOS_SIMULATOR_URL = 'http://localhost:5000/api';
@@ -27,12 +30,19 @@ function resolveApiBaseUrl(): string {
   if (override) {
     return override;
   }
-  if (Platform.OS === 'android') {
-    return Platform.constants?.isEmulator === true
-      ? ANDROID_EMULATOR_URL
-      : ANDROID_DEVICE_URL;
+  if (!__DEV__) {
+    return PRODUCTION_API_URL;
   }
-  return __DEV__ ? IOS_SIMULATOR_URL : IOS_DEVICE_URL;
+  if (Platform.OS === 'android') {
+    const isEmulator =
+      (Platform.constants as {isEmulator?: boolean} | undefined)?.isEmulator ===
+      true;
+    return isEmulator ? ANDROID_EMULATOR_URL : ANDROID_DEVICE_URL;
+  }
+  return IOS_SIMULATOR_URL;
 }
 
 export const API_BASE_URL = resolveApiBaseUrl();
+
+/** WebSocket base for realtime sync: http://host:port/api -> ws://host:port */
+export const WS_BASE_URL = API_BASE_URL.replace(/\/api\/?$/, '').replace(/^http/, 'ws');

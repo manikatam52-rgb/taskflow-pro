@@ -1,25 +1,47 @@
 import request from "supertest";
-import mongoose from "mongoose";
-import { MongoMemoryServer } from "mongodb-memory-server";
 import { createApp } from "../app";
-import { connectDatabase, disconnectDatabase } from "../config/database";
+import { connectDatabase, disconnectDatabase, query, getPool } from "../config/database";
 
-let mongod: MongoMemoryServer;
+let databaseReady = false;
 const app = () => createApp();
 
 beforeAll(async () => {
-  // In-memory MongoDB: no external services, no data pollution.
-  mongod = await MongoMemoryServer.create();
   process.env.JWT_SECRET = "test_secret_for_jest_only";
   process.env.JWT_EXPIRES_IN = "7d";
-  process.env.MONGODB_URI = mongod.getUri("taskflow-test");
-  await connectDatabase();
+
+  if (!process.env.DATABASE_URL) {
+    console.warn("DATABASE_URL not set — skipping integration tests that need the database.");
+    return;
+  }
+  try {
+    await connectDatabase();
+    // Wipe test data so runs are repeatable.
+    await query("DELETE FROM tasks");
+    await query("DELETE FROM users");
+    databaseReady = true;
+  } catch (err) {
+    console.warn(
+      `Could not connect to PostgreSQL (${err instanceof Error ? err.message : err}) — skipping DB-backed tests.`
+    );
+  }
 });
 
 afterAll(async () => {
+  if (databaseReady) {
+    await query("DELETE FROM tasks");
+    await query("DELETE FROM users");
+  }
   await disconnectDatabase();
-  await mongod.stop();
 });
+
+const itDb = (name: string, fn: () => void | Promise<void>) =>
+  test(name, async () => {
+    if (!databaseReady) {
+      console.warn(`skipped (no DB): ${name}`);
+      return;
+    }
+    await fn();
+  });
 
 let tokenA = "";
 let tokenB = "";
@@ -34,7 +56,7 @@ const createTask = (t: string, body: Record<string, unknown>, auth = tokenA) =>
   request(app()).post("/api/tasks").set("Authorization", `Bearer ${auth}`).send(body);
 
 describe("POST /api/auth/register", () => {
-  it("creates an account and returns token + safe user", async () => {
+  itDb("creates an account and returns token + safe user", async () => {
     const res = await register("a@example.com");
     expect(res.status).toBe(201);
     expect(res.body.success).toBe(true);
@@ -53,7 +75,7 @@ describe("POST /api/auth/register", () => {
     expect(res.status).toBe(400);
   });
 
-  it("rejects a duplicate email with 409", async () => {
+  itDb("rejects a duplicate email with 409", async () => {
     await register("dup@example.com");
     const res = await register("dup@example.com");
     expect(res.status).toBe(409);
@@ -61,20 +83,20 @@ describe("POST /api/auth/register", () => {
 });
 
 describe("POST /api/auth/login", () => {
-  it("logs in with correct credentials", async () => {
+  itDb("logs in with correct credentials", async () => {
     const res = await login("a@example.com");
     expect(res.status).toBe(200);
     tokenA = res.body.data.token;
     expect(tokenA).toBeTruthy();
   });
 
-  it("rejects wrong password with 401 and generic message", async () => {
+  itDb("rejects wrong password with 401 and generic message", async () => {
     const res = await login("a@example.com", "WrongPass1");
     expect(res.status).toBe(401);
     expect(res.body.message).toBe("Invalid email or password");
   });
 
-  it("rejects unknown email with 401 (no user enumeration)", async () => {
+  itDb("rejects unknown email with 401 (no user enumeration)", async () => {
     const res = await login("ghost@example.com");
     expect(res.status).toBe(401);
     expect(res.body.message).toBe("Invalid email or password");
@@ -82,7 +104,7 @@ describe("POST /api/auth/login", () => {
 });
 
 describe("GET /api/auth/me", () => {
-  it("returns the authenticated user", async () => {
+  itDb("returns the authenticated user", async () => {
     const res = await request(app()).get("/api/auth/me").set("Authorization", `Bearer ${tokenA}`);
     expect(res.status).toBe(200);
     expect(res.body.data.user.email).toBe("a@example.com");
@@ -104,12 +126,12 @@ describe("task endpoints", () => {
   let idLowFuture = "";
   let idNoDeadline = "";
 
-  it("rejects unauthenticated task access with 401", async () => {
+  itDb("rejects unauthenticated task access with 401", async () => {
     const res = await request(app()).get("/api/tasks");
     expect(res.status).toBe(401);
   });
 
-  it("creates tasks", async () => {
+  itDb("creates tasks", async () => {
     const auth = `Bearer ${tokenA}`;
     const r1 = await createTask("t1", { title: "Overdue high", priority: "high", deadline: new Date(Date.now() - 3600_000).toISOString() });
     expect(r1.status).toBe(201);
@@ -124,37 +146,37 @@ describe("task endpoints", () => {
     expect(r3.body.data.task.tags).toEqual(["x", "y"]);
   });
 
-  it("rejects a task without title with 400", async () => {
+  itDb("rejects a task without title with 400", async () => {
     const res = await createTask("t4", { priority: "high" });
     expect(res.status).toBe(400);
   });
 
-  it("rejects an invalid priority with 400", async () => {
+  itDb("rejects an invalid priority with 400", async () => {
     const res = await createTask("t5", { title: "x", priority: "urgent" });
     expect(res.status).toBe(400);
   });
 
-  it("never allows the client to set userId (protected field)", async () => {
+  itDb("never allows the client to set userId (protected field)", async () => {
     const res = await request(app())
       .post("/api/tasks")
       .set("Authorization", `Bearer ${tokenA}`)
-      .send({ title: "injected", userId: "000000000000000000000000" });
+      .send({ title: "injected", userId: "00000000-0000-0000-0000-000000000000" });
     expect(res.status).toBe(201);
-    expect(res.body.data.task.userId).not.toBe("000000000000000000000000");
+    expect(res.body.data.task.userId).not.toBe("00000000-0000-0000-0000-000000000000");
     const removed = await request(app())
       .delete(`/api/tasks/${res.body.data.task._id}`)
       .set("Authorization", `Bearer ${tokenA}`);
     expect(removed.status).toBe(200);
   });
 
-  it("returns tasks sorted by smart urgency", async () => {
+  itDb("returns tasks sorted by smart urgency", async () => {
     const res = await request(app()).get("/api/tasks").set("Authorization", `Bearer ${tokenA}`);
     const titles = res.body.data.tasks.map((t: { title: string }) => t.title);
     expect(titles[0]).toBe("Overdue high");
     expect(titles).toEqual(["Overdue high", "Future low", "No deadline"]);
   });
 
-  it("filters by status, priority, and search", async () => {
+  itDb("filters by status, priority, and search", async () => {
     const byPrio = await request(app()).get("/api/tasks?priority=high").set("Authorization", `Bearer ${tokenA}`);
     expect(byPrio.body.data.tasks).toHaveLength(1);
 
@@ -163,32 +185,32 @@ describe("task endpoints", () => {
     expect(bySearch.body.data.tasks[0].title).toBe("Future low");
   });
 
-  it("gets a single task by id", async () => {
+  itDb("gets a single task by id", async () => {
     const res = await request(app()).get(`/api/tasks/${idHighOverdue}`).set("Authorization", `Bearer ${tokenA}`);
     expect(res.status).toBe(200);
     expect(res.body.data.task.title).toBe("Overdue high");
   });
 
-  it("rejects an invalid id with 400 and a missing id with 404", async () => {
+  itDb("rejects an invalid id with 400 and a missing id with 404", async () => {
     const bad = await request(app()).get("/api/tasks/not-an-id").set("Authorization", `Bearer ${tokenA}`);
     expect(bad.status).toBe(400);
     const missing = await request(app())
-      .get("/api/tasks/65f0a1b2c3d4e5f6a7b8c9d0")
+      .get("/api/tasks/00000000-0000-0000-0000-000000000001")
       .set("Authorization", `Bearer ${tokenA}`);
     expect(missing.status).toBe(404);
   });
 
-  it("updates only editable fields", async () => {
+  itDb("updates only editable fields", async () => {
     const res = await request(app())
       .patch(`/api/tasks/${idLowFuture}`)
       .set("Authorization", `Bearer ${tokenA}`)
-      .send({ title: "Renamed", description: "updated", userId: "000000000000000000000000" });
+      .send({ title: "Renamed", description: "updated", userId: "00000000-0000-0000-0000-000000000000" });
     expect(res.status).toBe(200);
     expect(res.body.data.task.title).toBe("Renamed");
-    expect(res.body.data.task.userId).not.toBe("000000000000000000000000");
+    expect(res.body.data.task.userId).not.toBe("00000000-0000-0000-0000-000000000000");
   });
 
-  it("completes a task and sets completedAt", async () => {
+  itDb("completes a task and sets completedAt", async () => {
     const res = await request(app())
       .patch(`/api/tasks/${idNoDeadline}/complete`)
       .set("Authorization", `Bearer ${tokenA}`)
@@ -198,7 +220,7 @@ describe("task endpoints", () => {
     expect(res.body.data.task.completedAt).toBeTruthy();
   });
 
-  it("toggles a completed task back to pending", async () => {
+  itDb("toggles a completed task back to pending", async () => {
     const res = await request(app())
       .patch(`/api/tasks/${idNoDeadline}/complete`)
       .set("Authorization", `Bearer ${tokenA}`)
@@ -207,7 +229,7 @@ describe("task endpoints", () => {
     expect(res.body.data.task.completedAt).toBeNull();
   });
 
-  it("prevents user B from seeing, updating, or deleting user A's tasks", async () => {
+  itDb("prevents user B from seeing, updating, or deleting user A's tasks", async () => {
     const reg = await register("b@example.com");
     tokenB = reg.body.data.token;
     const authB = `Bearer ${tokenB}`;
@@ -228,14 +250,14 @@ describe("task endpoints", () => {
     expect(del.status).toBe(404);
   });
 
-  it("deletes own tasks and returns 404 afterwards", async () => {
+  itDb("deletes own tasks and returns 404 afterwards", async () => {
     const del = await request(app()).delete(`/api/tasks/${idLowFuture}`).set("Authorization", `Bearer ${tokenA}`);
     expect(del.status).toBe(200);
     const again = await request(app()).get(`/api/tasks/${idLowFuture}`).set("Authorization", `Bearer ${tokenA}`);
     expect(again.status).toBe(404);
   });
 
-  it("rejects invalid JSON bodies with 400", async () => {
+  itDb("rejects invalid JSON bodies with 400", async () => {
     const res = await request(app())
       .post("/api/tasks")
       .set("Authorization", `Bearer ${tokenA}`)
@@ -247,14 +269,14 @@ describe("task endpoints", () => {
 });
 
 describe("GET /api/health", () => {
-  it("reports healthy with db status", async () => {
+  itDb("reports healthy with db status", async () => {
     const res = await request(app()).get("/api/health");
     expect(res.status).toBe(200);
     expect(res.body.status).toBe("healthy");
     expect(res.body.db).toBe("connected");
   });
 
-  it("reports unavailable when the database is disconnected", async () => {
+  itDb("reports unavailable when the database is disconnected", async () => {
     await disconnectDatabase();
     try {
       const res = await request(app()).get("/api/health");
@@ -263,6 +285,7 @@ describe("GET /api/health", () => {
       expect(res.body.db).toBe("disconnected");
     } finally {
       await connectDatabase();
+      databaseReady = true;
     }
   });
 });

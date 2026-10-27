@@ -1,7 +1,9 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Animated,
+  Easing,
   FlatList,
   Pressable,
   RefreshControl,
@@ -17,71 +19,88 @@ import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { fetchTasks, setTaskStatus, deleteTask } from '../services/taskService';
 import { extractErrorMessage } from '../services/api';
+import { subscribeToTaskEvents, type RealtimeEvent } from '../services/realtime';
 import { TaskCard, isOverdue } from '../components/TaskCard';
 import { ErrorBanner, StatCard } from '../components/ui';
-import { colors, spacing, typography } from '../theme';
-import type { Priority, Task, TaskStatus } from '../types';
+import { PulseDot } from '../components/Animated';
+import { colors, spacing, typography, shadows } from '../theme';
+import { computeInsights } from '../utils/insights';
+import { useTaskFilters, type PriorityFilter, type SortOption } from '../hooks/useTaskFilters';
+import { InsightsCard } from '../components/InsightsCard';
+import type { Task } from '../types';
 import type { AppStackParamList } from '../navigation/types';
 
-type StatusFilter = 'all' | TaskStatus | 'overdue';
-type PriorityFilter = 'all' | Priority;
-type SortOption = 'smart' | 'deadline' | 'priority' | 'newest';
+const CATEGORY_CHIPS = ['all', 'work', 'personal', 'shopping', 'health', 'general'] as const;
 
-const PRIORITY_WEIGHT: Record<Priority, number> = { high: 3, medium: 2, low: 1 };
-
-/**
- * Mix algorithm for smart sorting:
- * 1. Overdue pending tasks appear at top.
- * 2. Pending tasks sorted by Priority Weight × Time remaining to deadline.
- * 3. Completed tasks move to the bottom.
- */
-function sortTasks(tasks: Task[], sortBy: SortOption): Task[] {
-  const dl = (t: Task) => (t.deadline ? new Date(t.deadline).getTime() : Infinity);
-  const created = (t: Task) => new Date(t.createdAt).getTime();
-
-  return [...tasks].sort((a, b) => {
-    // Completed tasks placed at the bottom
-    if ((a.status === 'completed') !== (b.status === 'completed')) {
-      return a.status === 'completed' ? 1 : -1;
-    }
-
-    if (sortBy === 'priority') {
-      return PRIORITY_WEIGHT[b.priority] - PRIORITY_WEIGHT[a.priority] || dl(a) - dl(b);
-    }
-    if (sortBy === 'deadline') {
-      return dl(a) - dl(b) || created(b) - created(a);
-    }
-    if (sortBy === 'newest') {
-      return created(b) - created(a);
-    }
-
-    // Smart mix algorithm
-    const overdueA = isOverdue(a);
-    const overdueB = isOverdue(b);
-    if (overdueA !== overdueB) return overdueA ? -1 : 1;
-
-    const prioDiff = PRIORITY_WEIGHT[b.priority] - PRIORITY_WEIGHT[a.priority];
-    if (prioDiff !== 0) return prioDiff;
-
-    return dl(a) - dl(b) || created(b) - created(a);
-  });
-}
-
-const CATEGORY_CHIPS = ['all', 'work', 'personal', 'shopping', 'health', 'general'];
-
-const PRIORITY_FILTERS: { label: string; value: PriorityFilter }[] = [
+const PRIORITY_FILTERS = [
   { label: 'Any Priority', value: 'all' },
   { label: '🔥 High', value: 'high' },
   { label: '⚡ Medium', value: 'medium' },
   { label: '🌱 Low', value: 'low' },
-];
+] as const satisfies ReadonlyArray<{ label: string; value: PriorityFilter }>;
 
-const SORTS: { label: string; value: SortOption }[] = [
+const SORTS = [
   { label: 'Smart Mix', value: 'smart' },
   { label: 'Deadline', value: 'deadline' },
   { label: 'Priority', value: 'priority' },
   { label: 'Newest', value: 'newest' },
-];
+] as const satisfies ReadonlyArray<{ label: string; value: SortOption }>;
+
+/** Toast that fades/scales in when another device changes a task. */
+function SyncToast({ message }: { message: string | null }) {
+  const anim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (message) {
+      const animation = Animated.sequence([
+        Animated.timing(anim, { toValue: 1, duration: 250, easing: Easing.out(Easing.back(1.5)), useNativeDriver: true }),
+        Animated.timing(anim, { toValue: 1, duration: 1800, useNativeDriver: true }),
+        Animated.timing(anim, { toValue: 0, duration: 300, useNativeDriver: true }),
+      ]);
+      animation.start();
+      return () => {
+        animation.stop();
+        anim.setValue(0);
+      };
+    }
+  }, [message, anim]);
+  if (!message) return null;
+  return (
+    <Animated.View
+      style={[
+        styles.syncToast,
+        shadows.md,
+        {
+          opacity: anim,
+          transform: [
+            { translateY: anim.interpolate({ inputRange: [0, 1], outputRange: [-16, 0] }) },
+            { scale: anim.interpolate({ inputRange: [0, 1], outputRange: [0.9, 1] }) },
+          ],
+        },
+      ]}>
+      <PulseDot />
+      <Text style={styles.syncToastText}>{message}</Text>
+    </Animated.View>
+  );
+}
+
+/** Card that fades + slides in when the list renders. */
+function AnimatedTaskItem({ children }: { children: React.ReactNode }) {
+  const anim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.timing(anim, { toValue: 1, duration: 320, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
+  }, [anim]);
+  return (
+    <Animated.View
+      style={{
+        opacity: anim,
+        transform: [
+          { translateY: anim.interpolate({ inputRange: [0, 1], outputRange: [14, 0] }) },
+        ],
+      }}>
+      {children}
+    </Animated.View>
+  );
+}
 
 export default function DashboardScreen() {
   const { logout, user } = useAuth();
@@ -91,12 +110,24 @@ export default function DashboardScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [live, setLive] = useState(false);
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
+  const [showInsights, setShowInsights] = useState(true);
 
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
-  const [priorityFilter, setPriorityFilter] = useState<PriorityFilter>('all');
-  const [categoryFilter, setCategoryFilter] = useState<string>('all');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [sortBy, setSortBy] = useState<SortOption>('smart');
+  const {
+    statusFilter,
+    setStatusFilter,
+    priorityFilter,
+    setPriorityFilter,
+    categoryFilter,
+    setCategoryFilter,
+    searchQuery,
+    setSearchQuery,
+    sortBy,
+    setSortBy,
+    resetFilters,
+    visibleTasks,
+  } = useTaskFilters(tasks);
 
   const load = useCallback(async (isRefresh = false) => {
     isRefresh ? setRefreshing(true) : setLoading(true);
@@ -117,6 +148,32 @@ export default function DashboardScreen() {
     }, [load]),
   );
 
+  /* ---- Realtime sync: other devices' mutations arrive over WebSocket ---- */
+  useEffect(() => {
+    const unsubscribe = subscribeToTaskEvents((event: RealtimeEvent) => {
+      if (event.type === 'connected') {
+        setLive(true);
+        return;
+      }
+      if (event.type === 'task.created' && event.task) {
+        const t = event.task;
+        setTasks(prev => (prev.some(p => p._id === t._id) ? prev : [t, ...prev]));
+        setSyncMessage(`📱 New: "${t.title}"`);
+      } else if (event.type === 'task.updated' && event.task) {
+        const t = event.task;
+        setTasks(prev => prev.map(p => (p._id === t._id ? t : p)));
+        setSyncMessage(t.status === 'completed' ? `✅ Completed: "${t.title}"` : `✏️ Updated: "${t.title}"`);
+      } else if (event.type === 'task.deleted' && event.id) {
+        setTasks(prev => prev.filter(p => p._id !== event.id));
+        setSyncMessage('🗑️ A task was deleted');
+      }
+    });
+    return () => {
+      unsubscribe();
+      setLive(false);
+    };
+  }, []);
+
   const counts = useMemo(() => {
     let pending = 0;
     let completed = 0;
@@ -131,36 +188,7 @@ export default function DashboardScreen() {
     return { total: tasks.length, pending, completed, overdue };
   }, [tasks]);
 
-  const visibleTasks = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    const filtered = tasks.filter(t => {
-      // Status filter
-      if (statusFilter === 'pending' && t.status !== 'pending') return false;
-      if (statusFilter === 'completed' && t.status !== 'completed') return false;
-      if (statusFilter === 'overdue' && !isOverdue(t)) return false;
-
-      // Priority filter
-      if (priorityFilter !== 'all' && t.priority !== priorityFilter) return false;
-
-      // Category filter
-      if (categoryFilter !== 'all' && (t.category || 'general').toLowerCase() !== categoryFilter) {
-        return false;
-      }
-
-      // Search query (matches title, description, category, or tags)
-      if (q) {
-        const titleMatch = t.title.toLowerCase().includes(q);
-        const descMatch = (t.description || '').toLowerCase().includes(q);
-        const catMatch = (t.category || '').toLowerCase().includes(q);
-        const tagMatch = t.tags ? t.tags.some(tg => tg.toLowerCase().includes(q)) : false;
-        if (!titleMatch && !descMatch && !catMatch && !tagMatch) return false;
-      }
-
-      return true;
-    });
-
-    return sortTasks(filtered, sortBy);
-  }, [tasks, statusFilter, priorityFilter, categoryFilter, searchQuery, sortBy]);
+  const insights = useMemo(() => computeInsights(tasks), [tasks]);
 
   const toggleComplete = async (task: Task) => {
     const next = task.status === 'completed' ? 'pending' : 'completed';
@@ -194,11 +222,21 @@ export default function DashboardScreen() {
 
   return (
     <View style={styles.flex}>
+      <SyncToast message={syncMessage} />
+
       {/* Top Header */}
       <View style={styles.header}>
         <View style={styles.headerRow}>
-          <View>
-            <Text style={typography.title}>TaskFlow Pro</Text>
+          <View style={{ flex: 1 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <Text style={typography.title}>TaskFlow Pro</Text>
+              <View style={styles.liveBadge}>
+                <PulseDot color={live ? colors.success : colors.textMuted} />
+                <Text style={[styles.liveText, { color: live ? colors.success : colors.textMuted }]}>
+                  {live ? 'Live sync' : 'Offline'}
+                </Text>
+              </View>
+            </View>
             <Text style={typography.secondary}>
               Welcome back, {user?.name || 'User'}!
             </Text>
@@ -269,7 +307,7 @@ export default function DashboardScreen() {
               <Pressable
                 key={cat}
                 onPress={() => setCategoryFilter(cat)}
-                style={[styles.chip, active && styles.chipActive]}>
+                style={({ pressed }) => [styles.chip, active && styles.chipActive, { transform: [{ scale: pressed ? 0.95 : 1 }] }]}>
                 <Text style={[styles.chipText, active && styles.chipTextActive]}>
                   {label}
                 </Text>
@@ -328,6 +366,14 @@ export default function DashboardScreen() {
               ? 'Tap "+ New Task" below to create your first task.'
               : 'No tasks match your selected filters or search query.'}
           </Text>
+          {tasks.length > 0 ? (
+            <Pressable
+              accessibilityRole="button"
+              onPress={resetFilters}
+              style={styles.clearFiltersButton}>
+              <Text style={styles.clearFiltersText}>Clear filters and search</Text>
+            </Pressable>
+          ) : null}
         </View>
       ) : (
         <FlatList
@@ -335,13 +381,28 @@ export default function DashboardScreen() {
           keyExtractor={t => t._id}
           contentContainerStyle={styles.listContainer}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load(true)} />}
+          ListHeaderComponent={
+            showInsights ? (
+              <InsightsCard
+                insights={insights}
+                onHide={() => setShowInsights(false)}
+                tasks={tasks}
+              />
+            ) : (
+              <Pressable onPress={() => setShowInsights(true)} style={styles.showInsightsBtn}>
+                <Text style={styles.showInsightsText}>📊 Show productivity insights</Text>
+              </Pressable>
+            )
+          }
           renderItem={({ item }) => (
-            <TaskCard
-              task={item}
-              onPress={() => navigation.navigate('TaskDetails', { taskId: item._id })}
-              onToggleComplete={() => toggleComplete(item)}
-              onLongPress={() => confirmDelete(item._id)}
-            />
+            <AnimatedTaskItem>
+              <TaskCard
+                task={item}
+                onPress={() => navigation.navigate('TaskDetails', { taskId: item._id })}
+                onToggleComplete={() => toggleComplete(item)}
+                onLongPress={() => confirmDelete(item._id)}
+              />
+            </AnimatedTaskItem>
           )}
         />
       )}
@@ -350,7 +411,7 @@ export default function DashboardScreen() {
       <Pressable
         style={({ pressed }) => [
           styles.fab,
-          { opacity: pressed ? 0.85 : 1 },
+          { transform: [{ scale: pressed ? 0.93 : 1 }] },
         ]}
         onPress={() => navigation.navigate('TaskForm', {})}>
         <Text style={styles.fabText}>+ New Task</Text>
@@ -364,6 +425,18 @@ const styles = StyleSheet.create({
   header: { padding: spacing.lg, paddingBottom: spacing.xs, backgroundColor: colors.surface },
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
   logout: { color: colors.primary, fontWeight: '700', fontSize: 14 },
+  liveBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: colors.background,
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  liveText: { fontSize: 10, fontWeight: '800' },
   statsRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md, marginBottom: spacing.sm },
   searchWrap: { marginTop: spacing.xs, marginBottom: spacing.xs },
   searchInput: {
@@ -392,6 +465,14 @@ const styles = StyleSheet.create({
   divider: { width: 1, height: 16, backgroundColor: colors.border, marginHorizontal: 4 },
   listContainer: { padding: spacing.lg, paddingBottom: 90 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.xl },
+  clearFiltersButton: {
+    marginTop: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: 10,
+    backgroundColor: colors.primaryLight,
+  },
+  clearFiltersText: { color: colors.primary, fontWeight: '700', fontSize: 14 },
   fab: {
     position: 'absolute',
     bottom: spacing.xl,
@@ -407,4 +488,48 @@ const styles = StyleSheet.create({
     shadowRadius: 5,
   },
   fabText: { color: '#FFFFFF', fontWeight: '800', fontSize: 16 },
+  syncToast: {
+    position: 'absolute',
+    top: 14,
+    alignSelf: 'center',
+    zIndex: 100,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: colors.surface,
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  syncToastText: { fontSize: 12, fontWeight: '700', color: colors.text },
+  insightsCard: {
+    backgroundColor: colors.surface,
+    borderRadius: 16,
+    padding: spacing.lg,
+    marginBottom: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  insightsHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.md },
+  insightsTitle: { fontSize: 15, fontWeight: '800', color: colors.text },
+  insightsHide: { fontSize: 12, color: colors.primary, fontWeight: '700' },
+  insightsTop: { flexDirection: 'row', alignItems: 'center', gap: spacing.lg },
+  bigStat: { fontSize: 28, fontWeight: '800', color: colors.text },
+  bigStatSub: { fontSize: 14, fontWeight: '600', color: colors.textSecondary },
+  mediumStat: { fontSize: 13, fontWeight: '600', color: colors.textSecondary },
+  smallStat: { fontSize: 12, color: colors.textMuted, fontWeight: '500' },
+  chartTitle: { fontSize: 12, fontWeight: '800', color: colors.textMuted, marginTop: spacing.lg, marginBottom: spacing.sm, textTransform: 'uppercase', letterSpacing: 0.5 },
+  catRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
+  catLabel: { width: 110, fontSize: 12, fontWeight: '600', color: colors.textSecondary },
+  emptyInsights: { marginTop: spacing.md, fontSize: 12, color: colors.textMuted, textAlign: 'center' },
+  showInsightsBtn: {
+    backgroundColor: colors.primaryLight,
+    borderRadius: 12,
+    padding: spacing.md,
+    alignItems: 'center',
+    marginBottom: spacing.md,
+  },
+  showInsightsText: { color: colors.primary, fontWeight: '700', fontSize: 13 },
 });

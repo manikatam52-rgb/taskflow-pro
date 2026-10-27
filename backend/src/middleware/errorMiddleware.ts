@@ -1,14 +1,12 @@
 import type { NextFunction, Request, Response } from "express";
-import mongoose from "mongoose";
 
 /**
  * Central error handler. Produces a consistent JSON error envelope and never
  * leaks stack traces, secrets, or internals to the client.
  *
  * Recognizes:
- * - Mongoose validation errors        -> 400
- * - Mongoose CastError (bad ObjectId) -> 400
- * - Duplicate key (E11000)            -> 409
+ * - PostgreSQL unique violation (23505) -> 409
+ * - PostgreSQL check/invalid value errors (23514, 22P02) -> 400
  * - Errors flagged with err.status    -> that status (used by routes)
  * - Anything else                     -> 500
  */
@@ -21,21 +19,20 @@ export function errorMiddleware(
   let status = 500;
   let message = "Internal server error";
 
-  if (err instanceof mongoose.Error.ValidationError) {
-    status = 400;
-    const first = Object.values(err.errors)[0];
-    message = first ? first.message : "Validation failed";
-  } else if (err instanceof mongoose.Error.CastError) {
-    status = 400;
-    message = `Invalid ${err.path}`;
-  } else if (
+  if (
     typeof err === "object" &&
     err !== null &&
     "code" in err &&
-    (err as { code?: number }).code === 11000
+    typeof (err as { code?: unknown }).code === "string"
   ) {
-    status = 409;
-    message = "Resource already exists";
+    const pgCode = (err as { code: string }).code;
+    if (pgCode === "23505") {
+      status = 409;
+      message = "Resource already exists";
+    } else if (pgCode === "23514" || pgCode === "22P02") {
+      status = 400;
+      message = "Invalid value provided";
+    }
   } else if (
     typeof err === "object" &&
     err !== null &&

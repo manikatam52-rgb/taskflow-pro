@@ -1,10 +1,10 @@
 import jwt from "jsonwebtoken";
 import type { NextFunction, Request, Response } from "express";
-import type { HydratedDocument } from "mongoose";
-import { User, type UserDocument } from "../models/User";
+import { findUserById } from "../services/authService";
+import type { SafeUser } from "../models/User";
 
 export interface AuthRequest extends Request {
-  authUser?: HydratedDocument<UserDocument>;
+  authUser?: SafeUser;
 }
 
 /**
@@ -46,7 +46,7 @@ export async function requireAuth(
   }
 
   try {
-    const user = await User.findById(payload.sub);
+    const user = await findUserById(payload.sub);
     if (!user) {
       // Token is valid but the account no longer exists — treat as unauthenticated.
       res.status(401).json({ success: false, message: "Account not found" });

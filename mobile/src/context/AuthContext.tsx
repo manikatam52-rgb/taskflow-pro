@@ -10,6 +10,7 @@ import {
   saveToken,
 } from '../services/authService';
 import {setUnauthorizedHandler} from '../services/api';
+import {connectRealtime, disconnectRealtime} from '../services/realtime';
 
 interface AuthContextValue {
   user: User | null;
@@ -41,6 +42,7 @@ export function AuthProvider({children}: {children: React.ReactNode}) {
           const me = await fetchCurrentUser(stored);
           setUser(me);
           setToken(stored);
+          connectRealtime(stored);
         }
       } catch {
         // Invalid/expired stored token — start signed out.
@@ -52,6 +54,7 @@ export function AuthProvider({children}: {children: React.ReactNode}) {
 
     // Expired session mid-use: clear state so the app returns to the login screen.
     setUnauthorizedHandler(() => {
+      disconnectRealtime();
       setUser(null);
       setToken(null);
     });
@@ -66,6 +69,7 @@ export function AuthProvider({children}: {children: React.ReactNode}) {
       await saveToken(result.token);
       setToken(result.token);
       setUser(result.user);
+      connectRealtime(result.token);
       return true;
     } catch (e) {
       setError(extractErrorMessage(e));
@@ -87,6 +91,7 @@ export function AuthProvider({children}: {children: React.ReactNode}) {
       await saveToken(result.token);
       setToken(result.token);
       setUser(result.user);
+      connectRealtime(result.token);
       return true;
     } catch (e) {
       setError(extractErrorMessage(e));
@@ -97,6 +102,7 @@ export function AuthProvider({children}: {children: React.ReactNode}) {
   };
 
   const logout = async () => {
+    disconnectRealtime();
     await clearToken();
     setToken(null);
     setUser(null);

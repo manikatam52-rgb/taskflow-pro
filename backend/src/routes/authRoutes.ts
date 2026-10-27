@@ -26,7 +26,7 @@ router.post("/login", async (req: Request, res: Response) => {
 
 /** GET /api/auth/me — returns the currently authenticated user. */
 router.get("/me", requireAuth, (req: AuthRequest, res: Response) => {
-  res.json({ success: true, data: { user: req.authUser!.toSafeUser() } });
+  res.json({ success: true, data: { user: req.authUser } });
 });
 
 export default router;

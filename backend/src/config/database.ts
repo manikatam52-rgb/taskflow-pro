@@ -1,55 +1,56 @@
-import mongoose from "mongoose";
-import dns from "dns";
-import * as os from "node:os";
+import { Pool, type QueryResult, type QueryResultRow } from "pg";
 
 /**
- * MongoDB connection.
- * Reads MONGODB_URI from the environment. Fails loudly when missing so the
+ * PostgreSQL connection (Supabase).
+ * Reads DATABASE_URL from the environment. Fails loudly when missing so the
  * app never silently runs without persistence.
  */
+let pool: Pool | null = null;
+
+export function getPool(): Pool {
+  if (!pool) {
+    const connectionString = process.env.DATABASE_URL;
+    if (!connectionString) {
+      throw new Error(
+        "DATABASE_URL is not set. Add it to backend/.env (see .env.example)."
+      );
+    }
+    pool = new Pool({
+      connectionString,
+      ssl: /localhost|127\.0\.0\.1/.test(connectionString)
+        ? false
+        : { rejectUnauthorized: false },
+      max: 10,
+      idleTimeoutMillis: 30_000,
+    });
+  }
+  return pool;
+}
+
 export async function connectDatabase(): Promise<void> {
-  const uri = process.env.MONGODB_URI;
-
-  if (!uri) {
-    throw new Error(
-      "MONGODB_URI is not set. Add it to backend/.env (see .env.example)."
-    );
-  }
-
-  mongoose.set("strictQuery", true);
-
+  const client = await getPool().connect();
   try {
-    await mongoose.connect(uri, { runtimeAdapters: { os } });
-  } catch (err) {
-    /*
-     * Some corporate/ISP DNS servers refuse DNS SRV queries, which makes
-     * mongodb+srv:// fail with `querySrv ECONNREFUSED` even though the cluster
-     * is reachable. In that case, retry once using public DNS resolvers
-     * (8.8.8.8 / 1.1.1.1) for SRV lookup. Regular host resolution still uses
-     * the OS resolver.
-     */
-    const isSrvRefused =
-      uri.startsWith("mongodb+srv") &&
-      err instanceof Error &&
-      (err.message.includes("querySrv") ||
-        (err as NodeJS.ErrnoException).code === "ECONNREFUSED");
-
-    if (!isSrvRefused) throw err;
-
-    console.warn(
-      "SRV lookup failed via system DNS; retrying with public resolvers (8.8.8.8, 1.1.1.1)"
-    );
-    dns.setServers(["8.8.8.8", "1.1.1.1"]);
-    await mongoose.connect(uri, { runtimeAdapters: { os } });
+    await client.query("SELECT 1");
+  } finally {
+    client.release();
   }
-
-  console.log("MongoDB connected");
+  console.log("PostgreSQL connected");
 }
 
 export function isDbConnected(): boolean {
-  return mongoose.connection.readyState === 1;
+  return pool !== null;
 }
 
 export async function disconnectDatabase(): Promise<void> {
-  await mongoose.disconnect();
+  if (pool) {
+    await pool.end();
+    pool = null;
+  }
+}
+
+export function query<T extends QueryResultRow>(
+  text: string,
+  params: unknown[] = []
+): Promise<QueryResult<T>> {
+  return getPool().query<T>(text, params);
 }
