@@ -35,7 +35,7 @@ async function main(): Promise<void> {
 
   const shutdown = async (): Promise<void> => {
     server.close();
-    const { disconnectDatabase } = await import("./config/database");
+    const { disconnectDatabase } = await import("./config/database.js");
     await disconnectDatabase();
     process.exit(0);
   };
