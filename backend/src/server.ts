@@ -2,6 +2,7 @@ import "dotenv/config";
 import { createApp } from "./app";
 import { connectDatabase } from "./config/database";
 import { initRealtime } from "./realtime/wsServer";
+import { migrateDatabase } from "./scripts/migrate";
 
 /**
  * Server entry point.
@@ -20,6 +21,8 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
+  // Create the idempotent schema before the service starts accepting requests.
+  await migrateDatabase();
   await connectDatabase();
 
   const PORT = Number(process.env.PORT || 5000);

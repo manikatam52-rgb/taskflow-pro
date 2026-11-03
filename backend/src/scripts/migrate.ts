@@ -5,7 +5,7 @@ import { getPool, disconnectDatabase } from "../config/database";
  * Creates the tables and indexes used by TaskFlow Pro.
  * Safe to run multiple times (IF NOT EXISTS everywhere).
  */
-async function main(): Promise<void> {
+export async function migrateDatabase(): Promise<void> {
   const pool = getPool();
 
   await pool.query(`
@@ -47,11 +47,15 @@ async function main(): Promise<void> {
   console.log("Migration complete: users + tasks tables ready.");
 }
 
-main()
-  .catch((err) => {
-    console.error("Migration failed:", err instanceof Error ? err.message : err);
-    process.exitCode = 1;
-  })
-  .finally(async () => {
-    await disconnectDatabase();
-  });
+// Keep the standalone migration command while allowing the API to run this
+// idempotent schema setup before accepting requests on a fresh database.
+if (require.main === module) {
+  migrateDatabase()
+    .catch((err) => {
+      console.error("Migration failed:", err instanceof Error ? err.message : err);
+      process.exitCode = 1;
+    })
+    .finally(async () => {
+      await disconnectDatabase();
+    });
+}
