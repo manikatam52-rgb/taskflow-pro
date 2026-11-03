@@ -88,8 +88,8 @@ android {
         applicationId "com.taskflow"
         minSdkVersion 24
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 2
-        versionName "1.1"
+        versionCode 3
+        versionName "1.2"
         manifestPlaceholders = [usesCleartextTraffic: "true"]
     }
     signingConfigs {

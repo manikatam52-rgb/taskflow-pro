@@ -14,7 +14,7 @@ import {Platform} from 'react-native';
  *    you keep the localhost fallback.
  */
 const DEV_LAN_IP = '10.12.216.198'; // Change to your active Wi-Fi IPv4 address for physical devices.
-const PRODUCTION_API_URL = 'https://taskflow-pro-api.onrender.com/api';
+const PRODUCTION_API_URL = 'https://taskflow-pro-wgnr.onrender.com/api';
 
 // Optional explicit override for the WebSocket base (defaults derive from API base).
 
