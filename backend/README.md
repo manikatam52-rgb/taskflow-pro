@@ -30,7 +30,7 @@ backend/          Express API (TypeScript)
    - `DATABASE_URL` — your Supabase connection string (Project Settings → Database → Connection string)
    - `JWT_SECRET` — any long random string
 3. `npm install`
-4. `npm run migrate` — creates the `users` and `tasks` tables
+4. `npm run db:migrate` — creates the `users` and `tasks` tables
 5. `npm run dev` — API on http://localhost:5000
 
 ## API overview
@@ -54,5 +54,5 @@ read, modify, or delete another user's tasks.
 ## Deployment
 
 `render.yaml` deploys the API to Render. Set `DATABASE_URL` and `JWT_SECRET`
-in the Render dashboard; run `npm run migrate` once against the production
-database before first use.
+in the Render dashboard; run `npm run db:migrate` once against the production
+database before first use. The script name is `db:migrate` in `backend/package.json`.
