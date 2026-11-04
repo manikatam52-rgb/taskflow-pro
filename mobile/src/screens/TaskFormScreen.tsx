@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -103,9 +104,12 @@ export default function TaskFormScreen({ route }: Props) {
 
   const renderPicker = () => {
     if (!activePicker) return null;
-    const DateTimePicker = require('@react-native-community/datetimepicker').default;
+    const DateTimePicker =
+      require('@react-native-community/datetimepicker').default;
     const isScheduled = activePicker.target === 'scheduledAt';
-    const currentValue = isScheduled ? (scheduledAt ?? new Date()) : (deadline ?? new Date());
+    const currentValue = isScheduled
+      ? scheduledAt ?? new Date()
+      : deadline ?? new Date();
 
     if (activePicker.step === 'date') {
       return (
@@ -148,7 +152,7 @@ export default function TaskFormScreen({ route }: Props) {
   if (loading) {
     return (
       <View style={styles.center}>
-        <Text style={typography.secondary}>Loading task details…</Text>
+        <Text style={typography.secondary}>Loading task details...</Text>
       </View>
     );
   }
@@ -166,9 +170,14 @@ export default function TaskFormScreen({ route }: Props) {
 
   return (
     <KeyboardAvoidingView
-      behavior={Platform.OS === 'android' ? undefined : 'padding'}
-      style={styles.flex}>
-      <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      style={styles.flex}
+    >
+      <ScrollView
+        contentContainerStyle={styles.container}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+      >
         <ErrorBanner message={error} />
 
         {/* Title */}
@@ -198,8 +207,11 @@ export default function TaskFormScreen({ route }: Props) {
               <Pressable
                 key={cat}
                 onPress={() => setCategory(cat)}
-                style={[styles.chip, active && styles.chipActive]}>
-                <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                style={[styles.chip, active && styles.chipActive]}
+              >
+                <Text
+                  style={[styles.chipText, active && styles.chipTextActive]}
+                >
                   {cat.charAt(0).toUpperCase() + cat.slice(1)}
                 </Text>
               </Pressable>
@@ -222,11 +234,21 @@ export default function TaskFormScreen({ route }: Props) {
         />
 
         {/* Scheduled Date & Time */}
-        <Text style={styles.sectionLabel}>📅 Scheduled Date & Time</Text>
+        <View style={styles.sectionLabelRow}>
+          <MaterialCommunityIcons
+            name="calendar-clock-outline"
+            size={17}
+            color={colors.primary}
+          />
+          <Text style={styles.sectionLabel}>Scheduled date &amp; time</Text>
+        </View>
         <View style={styles.dateRow}>
           <Pressable
             style={styles.dateButton}
-            onPress={() => setActivePicker({ target: 'scheduledAt', step: 'date' })}>
+            onPress={() =>
+              setActivePicker({ target: 'scheduledAt', step: 'date' })
+            }
+          >
             <Text style={styles.dateText}>{formatDisplay(scheduledAt)}</Text>
           </Pressable>
           {scheduledAt ? (
@@ -237,11 +259,21 @@ export default function TaskFormScreen({ route }: Props) {
         </View>
 
         {/* Deadline Date & Time */}
-        <Text style={styles.sectionLabel}>⏰ Deadline Date & Time</Text>
+        <View style={styles.sectionLabelRow}>
+          <MaterialCommunityIcons
+            name="clock-outline"
+            size={17}
+            color={colors.primary}
+          />
+          <Text style={styles.sectionLabel}>Deadline date &amp; time</Text>
+        </View>
         <View style={styles.dateRow}>
           <Pressable
             style={styles.dateButton}
-            onPress={() => setActivePicker({ target: 'deadline', step: 'date' })}>
+            onPress={() =>
+              setActivePicker({ target: 'deadline', step: 'date' })
+            }
+          >
             <Text style={styles.dateText}>{formatDisplay(deadline)}</Text>
           </Pressable>
           {deadline ? (
@@ -253,14 +285,27 @@ export default function TaskFormScreen({ route }: Props) {
         {renderPicker()}
 
         {/* Priority */}
-        <Text style={styles.sectionLabel}>⚡ Priority</Text>
+        <View style={styles.sectionLabelRow}>
+          <MaterialCommunityIcons
+            name="flag-outline"
+            size={17}
+            color={colors.primary}
+          />
+          <Text style={styles.sectionLabel}>Priority</Text>
+        </View>
         <View style={styles.row}>
           {PRIORITIES.map(p => (
             <Pressable
               key={p}
               onPress={() => setPriority(p)}
-              style={[styles.chip, priority === p && styles.chipActive]}>
-              <Text style={[styles.chipText, priority === p && styles.chipTextActive]}>
+              style={[styles.chip, priority === p && styles.chipActive]}
+            >
+              <Text
+                style={[
+                  styles.chipText,
+                  priority === p && styles.chipTextActive,
+                ]}
+              >
                 {p[0].toUpperCase() + p.slice(1)}
               </Text>
             </Pressable>
@@ -281,11 +326,39 @@ export default function TaskFormScreen({ route }: Props) {
 
 const styles = StyleSheet.create({
   flex: { flex: 1, backgroundColor: colors.background },
-  container: { padding: spacing.lg },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.background },
-  sectionLabel: { fontSize: 13, fontWeight: '700', color: colors.text, marginTop: spacing.md, marginBottom: spacing.xs },
-  presetsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.sm },
-  dateRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginBottom: spacing.sm },
+  container: {
+    padding: spacing.lg,
+    paddingBottom: spacing.xxl,
+    width: '100%',
+    maxWidth: 680,
+    alignSelf: 'center',
+  },
+  center: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.background,
+  },
+  sectionLabel: { fontSize: 13, fontWeight: '700', color: colors.text },
+  sectionLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    marginTop: spacing.lg,
+    marginBottom: spacing.sm,
+  },
+  presetsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+    marginBottom: spacing.sm,
+  },
+  dateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    marginBottom: spacing.sm,
+  },
   dateButton: {
     flex: 1,
     borderWidth: 1,

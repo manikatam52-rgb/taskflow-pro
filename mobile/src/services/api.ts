@@ -9,7 +9,8 @@ import { API_BASE_URL } from '../config';
  */
 const api = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 15000,
+  // Render free services can take close to a minute to wake after idling.
+  timeout: 70000,
 });
 
 const TOKEN_KEY = 'taskflow_token';

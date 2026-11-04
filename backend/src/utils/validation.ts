@@ -24,7 +24,7 @@ export function asStatus(value: unknown): TaskStatus {
   return STATUSES.includes(value as TaskStatus) ? (value as TaskStatus) : "pending";
 }
 
-/** Accepts null, undefined, "", or a parseable date string; otherwise null. */
+/** Accepts null, undefined, "", or a parseable date string. */
 export function asDate(value: unknown): Date | null {
   if (value === null || value === undefined || value === "") return null;
   if (typeof value !== "string" && !(value instanceof Date)) return null;
@@ -64,11 +64,19 @@ export function validateTaskBody(
   }
 
   if (body.scheduledAt !== undefined) {
-    out.scheduledAt = asDate(body.scheduledAt);
+    const parsed = asDate(body.scheduledAt);
+    if (body.scheduledAt !== null && body.scheduledAt !== "" && parsed === null) {
+      throw httpError(400, "scheduledAt must be a valid date");
+    }
+    out.scheduledAt = parsed;
   }
 
   if (body.deadline !== undefined) {
-    out.deadline = asDate(body.deadline);
+    const parsed = asDate(body.deadline);
+    if (body.deadline !== null && body.deadline !== "" && parsed === null) {
+      throw httpError(400, "deadline must be a valid date");
+    }
+    out.deadline = parsed;
   }
 
   if (body.priority !== undefined) {

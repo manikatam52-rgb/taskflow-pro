@@ -23,12 +23,22 @@ function AppStackScreen() {
         component={TaskFormScreen}
         options={({ route }) => ({
           title: route.params?.taskId ? 'Edit Task' : 'New Task',
+          headerShadowVisible: false,
+          headerStyle: { backgroundColor: '#F5F7FB' },
+          headerTintColor: '#3730A3',
+          headerTitleStyle: { color: '#0F172A', fontWeight: '700' },
         })}
       />
       <AppStack.Screen
         name="TaskDetails"
         component={TaskDetailsScreen}
-        options={{ title: 'Task Details' }}
+        options={{
+          title: 'Task Details',
+          headerShadowVisible: false,
+          headerStyle: { backgroundColor: '#F5F7FB' },
+          headerTintColor: '#3730A3',
+          headerTitleStyle: { color: '#0F172A', fontWeight: '700' },
+        }}
       />
     </AppStack.Navigator>
   );

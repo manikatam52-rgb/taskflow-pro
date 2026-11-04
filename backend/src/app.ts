@@ -2,7 +2,7 @@ import express from "express";
 import cors from "cors";
 import authRoutes from "./routes/authRoutes";
 import taskRoutes from "./routes/taskRoutes";
-import { isDbConnected } from "./config/database";
+import { checkDatabase } from "./config/database";
 import { errorMiddleware } from "./middleware/errorMiddleware";
 
 /** Express app factory. Kept separate from server.ts so tests can import it. */
@@ -12,8 +12,8 @@ export function createApp(): express.Express {
   app.use(cors());
   app.use(express.json());
 
-  app.get("/api/health", (_req, res) => {
-    const dbConnected = isDbConnected();
+  app.get("/api/health", async (_req, res) => {
+    const dbConnected = await checkDatabase();
     res.status(dbConnected ? 200 : 503).json({
       success: dbConnected,
       status: dbConnected ? "healthy" : "unhealthy",

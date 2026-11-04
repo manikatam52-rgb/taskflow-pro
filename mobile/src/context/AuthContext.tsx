@@ -39,14 +39,24 @@ export function AuthProvider({children}: {children: React.ReactNode}) {
       try {
         const stored = await loadToken();
         if (stored) {
-          const me = await fetchCurrentUser(stored);
-          setUser(me);
+          // Keep the token available while the API is temporarily unreachable.
+          // The response interceptor clears it only when the server returns 401.
           setToken(stored);
-          connectRealtime(stored);
+          // Do not hold the entire app behind session validation. The token is
+          // already available for requests while /auth/me refreshes the user.
+          setRestoring(false);
+          try {
+            const me = await fetchCurrentUser(stored);
+            setUser(me);
+            connectRealtime(stored);
+          } catch {
+            // A timeout/offline/cold-start error is not proof that the session
+            // expired. Keep the session and let the dashboard retry on focus.
+          }
         }
       } catch {
-        // Invalid/expired stored token — start signed out.
-        await clearToken();
+        // Encrypted storage may be temporarily unavailable. Do not erase data
+        // here; a real API 401 is handled by the response interceptor.
       } finally {
         setRestoring(false);
       }

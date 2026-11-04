@@ -6,7 +6,7 @@ import { AuthProvider, useAuth } from './src/context/AuthContext';
 import RootNavigator from './src/navigation/RootNavigator';
 
 function Root() {
-  const { restoring, user } = useAuth();
+  const { restoring, user, token } = useAuth();
   if (restoring) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F8FAFC' }}>
@@ -14,7 +14,7 @@ function Root() {
       </View>
     );
   }
-  return <RootNavigator signedIn={!!user} />;
+  return <RootNavigator signedIn={!!user || !!token} />;
 }
 
 export default function App() {

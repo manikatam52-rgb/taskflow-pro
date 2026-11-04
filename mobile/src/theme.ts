@@ -2,9 +2,9 @@ export const colors = {
   primary: '#4F46E5',
   primaryLight: '#EEF2FF',
   primaryDark: '#3730A3',
-  background: '#F8FAFC',
+  background: '#F5F7FB',
   surface: '#FFFFFF',
-  border: '#E2E8F0',
+  border: '#E7EAF1',
   text: '#0F172A',
   textSecondary: '#64748B',
   textMuted: '#94A3B8',
@@ -31,7 +31,14 @@ export const colors = {
   } as Record<string, { bg: string; text: string }>,
 };
 
-export const spacing = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32 } as const;
+export const spacing = {
+  xs: 4,
+  sm: 8,
+  md: 12,
+  lg: 16,
+  xl: 24,
+  xxl: 32,
+} as const;
 
 export const typography = {
   title: { fontSize: 26, fontWeight: '800' as const, color: colors.text },
@@ -54,5 +61,12 @@ export const shadows = {
     shadowOpacity: 0.08,
     shadowRadius: 4,
     elevation: 3,
+  },
+  card: {
+    shadowColor: '#172554',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    elevation: 2,
   },
 };

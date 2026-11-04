@@ -1,11 +1,15 @@
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import type { Task } from '../types';
 import { PriorityBadge, CategoryBadge, TagBadge } from './ui';
 import { colors, spacing, shadows } from '../theme';
 
 /** Formats an ISO string as "12 Oct 2026, 5:30 PM" (local time). */
-export function formatDateTime(iso: string | null, fallback = 'No date'): string {
+export function formatDateTime(
+  iso: string | null,
+  fallback = 'No date',
+): string {
   if (!iso) return fallback;
   const d = new Date(iso);
   return d.toLocaleString('en-GB', {
@@ -29,7 +33,12 @@ interface TaskCardProps {
   onLongPress?: () => void;
 }
 
-export function TaskCard({ task, onPress, onToggleComplete, onLongPress }: TaskCardProps) {
+export const TaskCard = React.memo(function TaskCard({
+  task,
+  onPress,
+  onToggleComplete,
+  onLongPress,
+}: TaskCardProps) {
   const done = task.status === 'completed';
   const overdue = isOverdue(task);
 
@@ -39,27 +48,53 @@ export function TaskCard({ task, onPress, onToggleComplete, onLongPress }: TaskC
         styles.card,
         shadows.sm,
         done && styles.cardDone,
-        { opacity: pressed ? 0.92 : 1 },
+        {
+          opacity: pressed ? 0.94 : 1,
+          transform: [{ scale: pressed ? 0.99 : 1 }],
+        },
       ]}
+      accessibilityRole="button"
+      accessibilityLabel={`${task.title}, ${done ? 'completed' : 'pending'}, ${
+        task.priority
+      } priority`}
+      accessibilityHint="Opens task details. Long press to delete."
       onPress={onPress}
-      onLongPress={onLongPress}>
+      onLongPress={onLongPress}
+    >
       {/* Checkbox */}
       <Pressable
-        onPress={onToggleComplete}
+        onPress={event => {
+          event.stopPropagation();
+          onToggleComplete();
+        }}
         hitSlop={8}
-        style={[styles.checkbox, done && styles.checkboxDone]}>
-        {done ? <Text style={styles.checkmark}>✓</Text> : null}
+        accessibilityRole="checkbox"
+        accessibilityLabel={`Mark ${task.title} ${
+          done ? 'pending' : 'completed'
+        }`}
+        accessibilityState={{ checked: done }}
+        style={[styles.checkbox, done && styles.checkboxDone]}
+      >
+        {done ? (
+          <MaterialCommunityIcons name="check" size={16} color="#FFFFFF" />
+        ) : null}
       </Pressable>
 
       <View style={styles.cardBody}>
         {/* Title */}
-        <Text style={[styles.title, done && styles.titleDone]} numberOfLines={1}>
+        <Text
+          style={[styles.title, done && styles.titleDone]}
+          numberOfLines={1}
+        >
           {task.title}
         </Text>
 
         {/* Description */}
         {task.description ? (
-          <Text style={[styles.description, done && styles.descriptionDone]} numberOfLines={2}>
+          <Text
+            style={[styles.description, done && styles.descriptionDone]}
+            numberOfLines={2}
+          >
             {task.description}
           </Text>
         ) : null}
@@ -68,48 +103,62 @@ export function TaskCard({ task, onPress, onToggleComplete, onLongPress }: TaskC
         <View style={styles.badgeRow}>
           <PriorityBadge priority={task.priority} />
           <CategoryBadge category={task.category} />
-          {task.tags && task.tags.length > 0 ? (
-            task.tags.slice(0, 2).map(tag => <TagBadge key={tag} tag={tag} />)
-          ) : null}
+          {task.tags && task.tags.length > 0
+            ? task.tags.slice(0, 2).map(tag => <TagBadge key={tag} tag={tag} />)
+            : null}
         </View>
 
         {/* Schedule & Deadline Dates */}
         <View style={styles.dateRow}>
           {task.scheduledAt ? (
-            <Text style={styles.dateText}>
-              📅 {formatDateTime(task.scheduledAt)}
-            </Text>
+            <View style={styles.dateItem}>
+              <MaterialCommunityIcons
+                name="calendar-outline"
+                size={14}
+                color={colors.textMuted}
+              />
+              <Text style={styles.dateText}>
+                {formatDateTime(task.scheduledAt)}
+              </Text>
+            </View>
           ) : null}
           {task.deadline ? (
-            <Text style={[styles.dateText, overdue && styles.overdue]}>
-              ⏰ {formatDateTime(task.deadline)}
-              {overdue ? ' (Overdue!)' : ''}
-            </Text>
+            <View style={styles.dateItem}>
+              <MaterialCommunityIcons
+                name="clock-outline"
+                size={14}
+                color={overdue ? colors.error : colors.textMuted}
+              />
+              <Text style={[styles.dateText, overdue && styles.overdue]}>
+                {overdue ? 'Overdue · ' : ''}
+                {formatDateTime(task.deadline)}
+              </Text>
+            </View>
           ) : null}
         </View>
       </View>
     </Pressable>
   );
-}
+});
 
 const styles = StyleSheet.create({
   card: {
     flexDirection: 'row',
     backgroundColor: colors.surface,
-    borderRadius: 14,
+    borderRadius: 18,
     borderWidth: 1,
     borderColor: colors.border,
-    padding: spacing.md,
-    marginBottom: spacing.sm,
+    padding: spacing.lg,
+    marginBottom: spacing.md,
   },
   cardDone: {
     backgroundColor: '#F8FAFC',
     borderColor: colors.border,
   },
   checkbox: {
-    width: 24,
-    height: 24,
-    borderRadius: 8,
+    width: 26,
+    height: 26,
+    borderRadius: 9,
     borderWidth: 2,
     borderColor: colors.primary,
     alignItems: 'center',
@@ -117,15 +166,35 @@ const styles = StyleSheet.create({
     marginRight: spacing.sm,
     marginTop: 2,
   },
-  checkboxDone: { backgroundColor: colors.success, borderColor: colors.success },
-  checkmark: { color: '#FFF', fontSize: 14, fontWeight: '800' },
+  checkboxDone: {
+    backgroundColor: colors.success,
+    borderColor: colors.success,
+  },
   cardBody: { flex: 1 },
-  title: { fontSize: 16, fontWeight: '700', color: colors.text },
+  title: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.text,
+    letterSpacing: -0.15,
+  },
   titleDone: { textDecorationLine: 'line-through', color: colors.textMuted },
   description: { fontSize: 13, color: colors.textSecondary, marginTop: 4 },
   descriptionDone: { color: colors.textMuted },
-  badgeRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.xs, marginTop: spacing.sm },
-  dateRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.md, marginTop: spacing.sm },
+  badgeRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: spacing.xs,
+    marginTop: spacing.sm,
+  },
+  dateRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: spacing.md,
+    marginTop: spacing.md,
+  },
+  dateItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   dateText: { fontSize: 12, color: colors.textSecondary, fontWeight: '500' },
   overdue: { color: colors.error, fontWeight: '700' },
 });

@@ -22,6 +22,12 @@ export function getPool(): Pool {
         : { rejectUnauthorized: false },
       max: 10,
       idleTimeoutMillis: 30_000,
+      connectionTimeoutMillis: 5_000,
+    });
+    // A dropped idle PostgreSQL connection should be logged and recovered by
+    // the pool, not become an unhandled EventEmitter error that crashes Node.
+    pool.on("error", (error) => {
+      console.error("PostgreSQL idle client error", error);
     });
   }
   return pool;
@@ -39,6 +45,17 @@ export async function connectDatabase(): Promise<void> {
 
 export function isDbConnected(): boolean {
   return pool !== null;
+}
+
+/** Check actual database reachability instead of treating an initialized pool as healthy. */
+export async function checkDatabase(): Promise<boolean> {
+  if (!pool) return false;
+  try {
+    await pool.query("SELECT 1");
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export async function disconnectDatabase(): Promise<void> {

@@ -3,27 +3,23 @@ import { createApp } from "../app";
 import { connectDatabase, disconnectDatabase, query, getPool } from "../config/database";
 
 let databaseReady = false;
+// This suite deletes all rows. It only runs when an explicitly disposable DB
+// URL is provided, never against the application's normal DATABASE_URL.
+const testDatabaseUrl = process.env.TASKFLOW_TEST_DATABASE_URL;
+const itDb = testDatabaseUrl ? test : test.skip;
 const app = () => createApp();
 
 beforeAll(async () => {
   process.env.JWT_SECRET = "test_secret_for_jest_only";
   process.env.JWT_EXPIRES_IN = "7d";
 
-  if (!process.env.DATABASE_URL) {
-    console.warn("DATABASE_URL not set — skipping integration tests that need the database.");
-    return;
-  }
-  try {
-    await connectDatabase();
-    // Wipe test data so runs are repeatable.
-    await query("DELETE FROM tasks");
-    await query("DELETE FROM users");
-    databaseReady = true;
-  } catch (err) {
-    console.warn(
-      `Could not connect to PostgreSQL (${err instanceof Error ? err.message : err}) — skipping DB-backed tests.`
-    );
-  }
+  if (!testDatabaseUrl) return;
+  process.env.DATABASE_URL = testDatabaseUrl;
+  await connectDatabase();
+  // This explicitly designated disposable database is cleared for repeatability.
+  await query("DELETE FROM tasks");
+  await query("DELETE FROM users");
+  databaseReady = true;
 });
 
 afterAll(async () => {
@@ -33,15 +29,6 @@ afterAll(async () => {
   }
   await disconnectDatabase();
 });
-
-const itDb = (name: string, fn: () => void | Promise<void>) =>
-  test(name, async () => {
-    if (!databaseReady) {
-      console.warn(`skipped (no DB): ${name}`);
-      return;
-    }
-    await fn();
-  });
 
 let tokenA = "";
 let tokenB = "";
